@@ -186,9 +186,9 @@ func chroot(dir string) {
 
 	fmt.Println("[MNT] -> /proc")
 
-	cmd := exec.Command("/bin/bash", "-c",
-        "mkdir -p /proc && mount -t proc -o nosuid,noexec,nodev proc /proc || true; "+
-            "hostname sandbox; exec /bin/bash -i",
+	cmd := exec.Command("/bin/sh", "-c",
+        "mkdir -p /proc && /bin/mount -t proc -o nosuid,noexec,nodev proc /proc || true; "+
+            "hostname sandbox; export PATH=/bin:$PATH; /bin/bash",
     )
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
@@ -202,9 +202,10 @@ func chroot(dir string) {
 
 	if err != nil {
 		cleanup(dir)
-        panic(err)
+        // panic(err)
+    } else {
+	    cleanup(dir)
     }
-	cleanup(dir)
 }
 
 func main() {
