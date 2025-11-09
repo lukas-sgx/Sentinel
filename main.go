@@ -44,7 +44,6 @@ func runUmount(target string) {
         return
     }
     if err := syscall.Unmount(target, syscall.MNT_DETACH); err != nil {
-        // ignore ENOENT (already gone) and EINVAL (not a mountpoint / invalid argument)
         if err == syscall.ENOENT || err == syscall.EINVAL {
             return
         }
@@ -90,13 +89,11 @@ func cleanup(dir string) {
 	runUmount(dir+"/dev")
 	fmt.Println("[RM] -> " + dir)
 
-	syscall.Sethostname([]byte("b00d1d3972da"))
 	defer os.RemoveAll(dir)
 
 }
 
 func pivotRoot(newroot string) error {
-    // rendre les mounts privés pour éviter de propager les changements au host
     if err := syscall.Mount("", "/", "", syscall.MS_REC|syscall.MS_PRIVATE, ""); err != nil {
         return fmt.Errorf("failed make / private: %w", err)
     }
