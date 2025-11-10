@@ -73,20 +73,26 @@ func init_env() string {
 	// fmt.Println("[MNT] -> /sys")
 	// runMount("-t", "sysfs", "none", sandbox+"/sys")
 	fmt.Println("[MNT] -> /dev")
-	runMount("--rbind", "--make-rprivate", "/dev", sandbox+"/dev")
+    cmd := exec.Command("unshare", "-Urnm", "--fork", "--pid", "--mount-proc").Run()
+    if cmd != nil {
+        panic(cmd)
+    }
 
 	return sandbox
 }
 
 func cleanup(dir string) {
 	fmt.Println("[UMNT] -> "+dir+"/proc")
-	runUmount("/proc")
 	runUmount(dir+"/proc")
 	// fmt.Println("[UMNT] -> "+dir+"/sys")
 	// runUmount(dir+"/sys")
-	fmt.Println("[UMNT] -> "+dir+"/dev")
-	runUmount("/dev")
+
+	runUmount(dir+"/dev/pts")
+	fmt.Println("[UMNT] -> "+dir+"/dev/pts")
+    runUmount(dir+"/dev/shm")
+	fmt.Println("[UMNT] -> "+dir+"/dev/shm")
 	runUmount(dir+"/dev")
+	fmt.Println("[UMNT] -> "+dir+"/dev")
 	fmt.Println("[RM] -> " + dir)
 
 	defer os.RemoveAll(dir)
@@ -168,6 +174,13 @@ func createUserInSandbox(root, username string, uid, gid int) {
     }
 }
 
+func makeNode(path string, mode uint32, major, minor, perm int) {
+    dev := int((major << 8) | minor)
+    if err := syscall.Mknod(path, mode|uint32(perm), dev); err != nil {
+        panic(err)
+    }
+}
+
 func chroot(dir string) {
     if _, err := os.Stat(filepath.Join(dir, "bin/sh")); err != nil {
         panic(fmt.Errorf("missing /bin/sh inside sandbox: %w", err))
@@ -176,6 +189,32 @@ func chroot(dir string) {
     if err := syscall.Unshare(syscall.CLONE_NEWNS); err != nil {
         panic(err)
     }
+    
+    os.MkdirAll(dir+"/dev", 0755)
+    if err := syscall.Mount("tmpfs", dir+"/dev", "tmpfs", 0, "mode=755"); err != nil {
+        panic(err)
+    }
+
+    os.MkdirAll(dir+"/dev/pts", 0755)
+    if err := syscall.Mount("devpts", dir+"/dev/pts", "devpts", 0, "newinstance,ptmxmode=666,mode=620"); err != nil {
+        panic(err)
+    }
+
+    os.MkdirAll(dir+"/dev/shm", 0755)
+    if err := syscall.Mount("tmpfs", dir+"/dev/shm", "tmpfs", 0, "mode=1777"); err != nil {
+        panic(err)
+    }
+
+    makeNode(dir+"/dev/null",   syscall.S_IFCHR, 1, 3, 0666)
+    makeNode(dir+"/dev/zero",   syscall.S_IFCHR, 1, 5, 0666)
+    makeNode(dir+"/dev/full",   syscall.S_IFCHR, 1, 7, 0666)
+    makeNode(dir+"/dev/random", syscall.S_IFCHR, 1, 8, 0666)
+    makeNode(dir+"/dev/urandom",syscall.S_IFCHR, 1, 9, 0666)
+    makeNode(dir+"/dev/tty",    syscall.S_IFCHR, 5, 0, 0666)
+    makeNode(dir+"/dev/console",syscall.S_IFCHR, 5, 1, 0600)
+    makeNode(dir+"/dev/ptmx",    syscall.S_IFCHR, 5, 2, 0666)
+
+
 
     if err := pivotRoot(dir); err != nil {
         panic(err)
@@ -185,7 +224,7 @@ func chroot(dir string) {
 
 	cmd := exec.Command("/bin/sh", "-c",
         "mkdir -p /proc && /bin/mount -t proc -o nosuid,noexec,nodev proc /proc || true; "+
-            "hostname sandbox; export PATH=/bin:$PATH; /bin/bash",
+            "hostname sandbox; export PATH=/bin:$PATH;  fastfetch; /bin/bash -i",
     )
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
